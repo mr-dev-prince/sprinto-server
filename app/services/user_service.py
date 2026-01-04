@@ -1,80 +1,125 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.models.user import User
-from app.schemas.user import UserCreate
-from app.core.security import hash_password
-from app.core.jwt_config import create_access_token, create_refresh_token
-from app.services.user_queries import get_user_by_email, get_user_by_id
-from app.core.security import verify_password
-from fastapi import HTTPException
-from sqlalchemy.sql import func
+from datetime import datetime, timezone
 
-async def authenticate_user(
-    db: AsyncSession,
-    email: str,
-    password: str
-):
-    user = await get_user_by_email(db, email)
-    if not user:
-        return None
+async def create_user_from_clerk(db, data: dict) -> User:
+    clerk_user_id = data["id"]
 
-    if not verify_password(password, user.password_hash):
-        return None
+    primary_email_id = data.get("primary_email_address_id")
+    email = None
+    for e in data.get("email_addresses", []):
+        if e["id"] == primary_email_id:
+            email = e["email_address"]
+            break
 
-    return user
+    if not email:
+        raise ValueError("Primary email not found")
 
-async def create_user(db: AsyncSession, data: UserCreate):
-    existing = await get_user_by_email(db, data.email)
-    if existing:
-        raise ValueError("User already Exists")
-    
+    first = data.get("first_name") or ""
+    last = data.get("last_name") or ""
+    name = f"{first} {last}".strip() or "Splito User"
+    avatar_url = data.get("image_url")
+
+    result = await db.execute(
+        select(User).where(User.clerk_user_id == clerk_user_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        if not user.is_active or user.deleted_at:
+            user.is_active = True
+            user.deleted_at = None
+
+        user.email = email
+        user.name = name
+        user.avatar_url = avatar_url
+
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        user.clerk_user_id = clerk_user_id
+        user.is_active = True
+        user.deleted_at = None
+        user.name = name
+        user.avatar_url = avatar_url
+
+        await db.commit()
+        await db.refresh(user)
+        return user
+
     user = User(
-        email = data.email,
-        name = data.name,
-        password_hash = hash_password(data.password)
+        clerk_user_id=clerk_user_id,
+        email=email,
+        name=name,
+        avatar_url=avatar_url,
+        is_active=True,
     )
 
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return user
-
-async def edit_user(db : AsyncSession, data ,user_id: int):
-    user = await get_user_by_id(db, user_id)
-
-    if not user:
-        raise HTTPException(404, "User does not exist")
-    
-    if data.name:
-        user.name = data.name
-
-    if data.email:
-        user.email = data.email
-
-    #TODO: add phone number support
-
-    await db.commit()
-    await db.refresh(user)
 
     return user
 
-async def login_user_service(
+async def update_user_from_clerk(
     db: AsyncSession,
-    email: str,
-    password: str
+    data: dict
 ):
-    user = await authenticate_user(db, email, password)
+    clerk_user_id = data["id"]
+
+    result = await db.execute(
+        select(User).where(User.clerk_user_id == clerk_user_id)
+    )
+    user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        return None  # user not created yet
 
-    access_token = create_access_token({"sub": str(user.id)})
-    refresh_token = create_refresh_token({"sub": str(user.id)})
+    email_addresses = data.get("email_addresses", [])
+    if email_addresses:
+        user.email = email_addresses[0]["email_address"]
 
-    user.refresh_token = refresh_token
-    user.last_login_at = func.now()
+    first_name = data.get("first_name") or ""
+    last_name = data.get("last_name") or ""
+    user.name = f"{first_name} {last_name}".strip() or user.name
+
+    user.avatar_url = data.get("image_url")
 
     await db.commit()
     await db.refresh(user)
 
-    return user, access_token, refresh_token
+    return user
+
+async def deactivate_user_from_clerk(
+    db: AsyncSession,
+    data: dict,
+):
+    clerk_user_id = data.get("id")
+    if not clerk_user_id:
+        return None
+
+    result = await db.execute(
+        select(User).where(User.clerk_user_id == clerk_user_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # webhook may arrive for a user you never stored
+        return None
+
+    # Idempotent: safe to run multiple times
+    user.is_active = False
+    user.deleted_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(user)
+
+    return user

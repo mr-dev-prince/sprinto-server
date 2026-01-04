@@ -1,5 +1,7 @@
 -> Uvicorn - The actual server - engine running the fastapi server
 
+-> install requirements - [pip install -r requirements.txt]
+
 -> Folder Structure
     - api -> routes, versioning, dependencies
     - models -> SQLAlchemy ORM tables

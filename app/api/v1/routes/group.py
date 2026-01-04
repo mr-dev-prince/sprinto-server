@@ -4,7 +4,6 @@ from app.db.session import get_db
 from app.services.group_services import create_group, add_member, list_group_for_user, list_group_members, delete_group, remove_member, exit_group, edit_group, get_group_settlement_plan, list_group_expenses
 from app.schemas.group import GroupCreate, GroupMemberOut, GroupOut
 from app.schemas.balances import GroupBalanceOut
-from app.schemas.user import UserOut
 from app.core.dependencies import get_current_user, check_group_membership
 from app.services.settlement_service import compute_group_settlements, add_settlement, get_settlement_history,undo_settlement
 from app.schemas.settlements import Settlement, SettlementHistoryCreate, SettlementHistoryOut
@@ -52,7 +51,7 @@ async def exit(group_id: int, db:AsyncSession = Depends(get_db), current_user = 
     await check_group_membership(db, group_id, current_user.id)
     return await exit_group(db, group_id=group_id, user_id=current_user.id)
 
-@router.get("/{group_id}/group-members", response_model=list[UserOut])
+@router.get("/{group_id}/group-members")
 async def group_members(group_id: int, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
     await check_group_membership(db, group_id, current_user.id)
     return await list_group_members(db, current_user.id, group_id=group_id)

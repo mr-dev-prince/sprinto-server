@@ -1,15 +1,32 @@
-from passlib.context import CryptContext
-import hashlib
-import bcrypt
+from fastapi import HTTPException, Request
+from jose import jwt
+import httpx
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+CLERK_ISSUER = "https://valued-earwig-71.clerk.accounts.dev"
+CLERK_JWKS_URL = f"{CLERK_ISSUER}/.well-known/jwks.json"
+CLERK_AUDIENCE = "your-clerk-frontend-api"
 
-def hash_password(password:str) -> str:
-    sha_digest = hashlib.sha256(password.encode("utf-8")).digest()
-    hashed = bcrypt.hashpw(sha_digest, bcrypt.gensalt())
-    return hashed.decode()
+jwks = httpx.get(CLERK_JWKS_URL).json()
 
-def verify_password(password:str, hashed_password:str) -> bool:
-    sha_digest = hashlib.sha256(password.encode("utf-8")).digest()
-    return bcrypt.checkpw(sha_digest, hashed_password.encode())
+def verify_clerk_token(token: str):
+    unverified_header = jwt.get_unverified_header(token)
+    key = next(
+        k for k in jwks["keys"]
+        if k["kid"] == unverified_header["kid"]
+    )
 
+    payload = jwt.decode(
+        token,
+        key,
+        algorithms=["RS256"],
+        audience=CLERK_AUDIENCE,
+        issuer=CLERK_ISSUER,
+    )
+
+    return payload
+
+def get_bearer_token(request: Request) -> str:
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing token")
+    return auth.split(" ")[1]

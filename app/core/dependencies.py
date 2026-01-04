@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.jwt_config import decode_token, get_token_from_cookie
 from app.services.user_queries import get_user_by_id
+from app.core.security import get_bearer_token, verify_clerk_token
 from app.db.session import get_db
 from sqlalchemy import select
 from app.models.group import Group
@@ -9,8 +9,8 @@ from app.models.group_member import GroupMember
 
 async def get_current_user(request: Request,db: AsyncSession = Depends(get_db)):
     try:
-        token = get_token_from_cookie(request=request)
-        payload = decode_token(token)
+        token = get_bearer_token(request)
+        payload = verify_clerk_token(token)
         print(payload)
         user_id = payload.get("sub")
         

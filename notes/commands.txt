@@ -3,7 +3,7 @@
 
 # important commands
 
--> activate venv -> [ source venv/bin/activate]
+-> activate venv -> [ source venv/bin/activate ]
 -> run server    -> [ uvicorn app.main:app ]
 -> migrate db    -> [ alembic revision --autogenerate -m "create users table" ]
 -> apply migration -> [ alembic upgrage head ]
